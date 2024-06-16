@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import AuthLayout from "@/components/Layouts/AuthLayout";
 import Modal from "@/components/Modal/Modal";
 import TablePagination from "@/components/TablePagination/TablePagination";
@@ -7,13 +8,20 @@ import { useDebounce } from "@/hooks/useDebounce";
 import useSearchParamsCus from "@/hooks/useSearchParamsCus";
 import { getProductsApi } from "@/services/product.service";
 import { getUsersApi } from "@/services/user.service";
+import { useFormik } from "formik";
 import {
   usePathname,
   useRouter,
   useParams,
   useSearchParams,
 } from "next/navigation";
-import { useEffect, useState } from "react";
+import Select, { StylesConfig } from "react-select";
+
+const TYPE_MODAL = {
+  CREATE: "create",
+  EDIT: "edit",
+  CLOSE: "",
+};
 
 export default function Products() {
   const searchParamsCus: any = useSearchParamsCus();
@@ -24,7 +32,7 @@ export default function Products() {
   const [products, setProducts] = useState<any>();
   const [userSelected, setUserSelected] = useState<any>();
 
-  const [isOpenModalDetail, setIsOpenModalDetail] = useState(false);
+  const [isOpenModal, setIsOpenModal] = useState(TYPE_MODAL.CLOSE);
 
   const getListProduct = async () => {
     try {
@@ -70,7 +78,7 @@ export default function Products() {
 
   const handleShowDetail = (user: any) => {
     setUserSelected(user);
-    setIsOpenModalDetail(true);
+    setIsOpenModal(TYPE_MODAL.CLOSE);
   };
 
   useEffect(() => {
@@ -85,7 +93,10 @@ export default function Products() {
     <>
       <AuthLayout>
         <div className="rounded-sm border border-stroke bg-white px-5 pb-2.5 pt-6 shadow-default dark:border-strokedark dark:bg-boxdark sm:px-7.5 xl:pb-1">
-          <button className="flex items-center gap-2 rounded bg-primary px-4.5 py-2 my-2 font-medium text-white hover:bg-opacity-80">
+          <button
+            onClick={() => setIsOpenModal(TYPE_MODAL.CREATE)}
+            className="my-2 flex items-center gap-2 rounded bg-primary px-4.5 py-2 font-medium text-white hover:bg-opacity-80"
+          >
             <svg
               className="fill-current"
               width="16"
@@ -239,45 +250,164 @@ export default function Products() {
         </div>
       </AuthLayout>
       <Modal
-        isOpen={isOpenModalDetail}
-        onClose={() => setIsOpenModalDetail(false)}
-        title={"User Detail"}
+        isOpen={isOpenModal == TYPE_MODAL.CREATE}
+        onClose={() => setIsOpenModal("")}
+        title={"Create Product"}
       >
-        <div className="rounded-sm border border-stroke bg-white dark:border-strokedark dark:bg-boxdark">
-          {/* <div className="border-b border-stroke px-6.5 py-4 dark:border-strokedark">
-            <h3 className="font-medium text-black dark:text-white">
-              User Detail
-            </h3>
-          </div> */}
-          <div className="flex flex-col gap-5.5 p-6.5">
-            <div>
-              <label className="mb-3 block text-sm font-medium text-black dark:text-white">
-                User Name
-              </label>
-              <input
-                type="text"
-                disabled
-                placeholder="Default Input"
-                value={userSelected?.name}
-                className="w-full rounded-lg border-[1.5px] border-stroke bg-transparent px-5 py-3 text-black outline-none transition focus:border-primary active:border-primary disabled:cursor-default disabled:bg-whiter dark:border-form-strokedark dark:bg-form-input dark:text-white dark:focus:border-primary"
-              />
-            </div>
-
-            <div>
-              <label className="mb-3 block text-sm font-medium text-black dark:text-white">
-                Email
-              </label>
-              <input
-                type="text"
-                disabled
-                placeholder="Active Input"
-                value={userSelected?.email}
-                className="w-full rounded-lg border-[1.5px] border-primary bg-transparent px-5 py-3 text-black outline-none transition focus:border-primary active:border-primary disabled:cursor-default disabled:bg-whiter dark:bg-form-input dark:text-white"
-              />
-            </div>
-          </div>
-        </div>
+        <FormCreateProduct />
       </Modal>
     </>
   );
 }
+
+const FormCreateProduct = ({ onHandleSuccess }: any) => {
+  const option_cate = [
+    {
+      label: "Laptop",
+      value: "9c875cd2-6378-4ab7-b1d9-8d0008060d8c",
+    },
+    {
+      label: "Keyboard",
+      value: "927ce601-8b7d-40ac-9974-9aca457f673b",
+    },
+  ];
+
+  const onSubmit = async () => {
+    try {
+      console.log(values);
+    } catch (error) {
+      console.log("handleLogin: ", error);
+    }
+  };
+
+  const {
+    handleSubmit,
+    errors,
+    values,
+    handleBlur,
+    handleChange,
+    dirty,
+    touched,
+  }: any = useFormik({
+    initialValues: {
+      name: "",
+      description: "",
+      categoryIds: [],
+      images: [],
+      priceTags: [],
+    },
+    onSubmit,
+    enableReinitialize: true
+    // validationSchema: SignInSchema,
+  });
+
+  return (
+    <div>
+      <form onSubmit={handleSubmit}>
+        <div className="max-h-[55vh] overflow-auto rounded-sm border border-stroke bg-white shadow-default dark:border-strokedark dark:bg-boxdark">
+          <div className="p-6.5">
+            <div className="mb-4.5 flex flex-col gap-6 xl:flex-row">
+              <div className="w-full xl:w-1/2">
+                <label className="mb-3 block text-sm font-medium text-black dark:text-white">
+                  Product Name
+                </label>
+                <input
+                  value={values.name}
+                  name="name"
+                  onChange={handleChange}
+                  onBlur={handleBlur}
+                  type="text"
+                  placeholder="Enter your first name"
+                  className="w-full rounded border-[1.5px] border-stroke bg-transparent px-5 py-3 text-black outline-none transition focus:border-primary active:border-primary disabled:cursor-default disabled:bg-whiter dark:border-form-strokedark dark:bg-form-input dark:text-white dark:focus:border-primary"
+                />
+              </div>
+
+              <div className="w-full xl:w-1/2">
+                <label className="mb-3 block text-sm font-medium text-black dark:text-white">
+                  Product Description
+                </label>
+                <input
+                  type="text"
+                  placeholder="Enter your last name"
+                  className="w-full rounded border-[1.5px] border-stroke bg-transparent px-5 py-3 text-black outline-none transition focus:border-primary active:border-primary disabled:cursor-default disabled:bg-whiter dark:border-form-strokedark dark:bg-form-input dark:text-white dark:focus:border-primary"
+                />
+              </div>
+            </div>
+
+            <div className="mb-4.5">
+              <label className="mb-3 block text-sm font-medium text-black dark:text-white">
+                Categories <span className="text-meta-1">*</span>
+              </label>
+              <Select
+                name="categoryIds"
+                isClearable
+                isMulti
+                options={option_cate}
+                value={values.categoryIds}
+                onChange={(selectedOption: any) => {
+                  console.log(selectedOption);
+                  handleChange({
+                    target: { name: "categoryIds", value: selectedOption },
+                  });
+                }}
+                noOptionsMessage={() => "No options"}
+                classNames={{
+                  control: () =>
+                    "w-full rounded border-[1.5px] border-stroke bg-transparent px-3 py-1 text-black outline-none transition focus:border-primary active:border-primary disabled:cursor-default disabled:bg-whiter dark:border-form-strokedark dark:bg-form-input dark:text-white dark:focus:border-primary",
+                  valueContainer: () => "",
+                }}
+                onBlur={handleBlur}
+              />
+            </div>
+            <label className="mb-3 block text-sm font-medium text-black dark:text-white">
+              Price
+            </label>
+            <div className="flex flex-col gap-3">
+              <div className="mb-4.5 flex flex-col gap-2 xl:flex-row">
+                <div className="w-full xl:w-1/2">
+                  <input
+                    type="text"
+                    placeholder="Enter name price tag"
+                    className="w-full rounded border-[1.5px] border-stroke bg-transparent px-5 py-3 text-black outline-none transition focus:border-primary active:border-primary disabled:cursor-default disabled:bg-whiter dark:border-form-strokedark dark:bg-form-input dark:text-white dark:focus:border-primary"
+                  />
+                </div>
+                <div className="w-full xl:w-1/2">
+                  <input
+                    type="number"
+                    placeholder="Enter price"
+                    className="w-full rounded border-[1.5px] border-stroke bg-transparent px-5 py-3 text-black outline-none transition focus:border-primary active:border-primary disabled:cursor-default disabled:bg-whiter dark:border-form-strokedark dark:bg-form-input dark:text-white dark:focus:border-primary"
+                  />
+                </div>
+              </div>
+            </div>
+
+            <div className="mb-4.5">
+              <label className="mb-3 block text-sm font-medium text-black dark:text-white">
+                Subject
+              </label>
+              <input
+                type="text"
+                placeholder="Select subject"
+                className="w-full rounded border-[1.5px] border-stroke bg-transparent px-5 py-3 text-black outline-none transition focus:border-primary active:border-primary disabled:cursor-default disabled:bg-whiter dark:border-form-strokedark dark:bg-form-input dark:text-white dark:focus:border-primary"
+              />
+            </div>
+
+            <div className="mb-6">
+              <label className="mb-3 block text-sm font-medium text-black dark:text-white">
+                Message
+              </label>
+              <textarea
+                rows={6}
+                placeholder="Type your message"
+                className="w-full rounded border-[1.5px] border-stroke bg-transparent px-5 py-3 text-black outline-none transition focus:border-primary active:border-primary disabled:cursor-default disabled:bg-whiter dark:border-form-strokedark dark:bg-form-input dark:text-white dark:focus:border-primary"
+              ></textarea>
+            </div>
+          </div>
+        </div>
+        <button className="mt-5 flex w-full justify-center rounded bg-primary p-3 font-medium text-gray hover:bg-opacity-90">
+          Send Message
+        </button>
+      </form>
+    </div>
+  );
+};

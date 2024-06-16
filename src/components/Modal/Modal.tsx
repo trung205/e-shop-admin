@@ -31,15 +31,15 @@ const Modal = ({ isOpen, onClose, title, children }: any) => {
             </svg>
           </button>
         </div>
-        <div className="px-4 py-5 sm:p-6">{children}</div>
-        <div className="flex justify-end px-4 py-3">
+        <div className="px-4 pb-5 sm:px-6 sm:pb-6">{children}</div>
+        {/* <div className="flex justify-end px-4 py-3">
           <button
             onClick={onClose}
             className="rounded-md bg-indigo-600 px-4 py-2 text-white hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:ring-offset-2"
           >
             Close
           </button>
-        </div>
+        </div> */}
       </div>
     </div>
   );
