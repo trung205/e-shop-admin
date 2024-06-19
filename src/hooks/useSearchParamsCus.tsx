@@ -9,7 +9,5 @@ export default function useSearchParamsCus() {
     paramsObj[key] = value;
   });
 
-  console.log(paramsObj); // { page: '1', keyword: 'email' }
-
   return {searchParams, paramsObj};
 }

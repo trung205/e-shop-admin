@@ -1,12 +1,16 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import AuthLayout from "@/components/Layouts/AuthLayout";
 import Modal from "@/components/Modal/Modal";
 import TablePagination from "@/components/TablePagination/TablePagination";
 import { useDebounce } from "@/hooks/useDebounce";
 import useSearchParamsCus from "@/hooks/useSearchParamsCus";
-import { getProductsApi } from "@/services/product.service";
+import {
+  createProductApi,
+  getProductsApi,
+  updateProductApi,
+} from "@/services/product.service";
 import { getUsersApi } from "@/services/user.service";
 import { useFormik } from "formik";
 import {
@@ -16,6 +20,12 @@ import {
   useSearchParams,
 } from "next/navigation";
 import Select, { StylesConfig } from "react-select";
+import TrashIcon from "@/components/Icons/TrashIcon";
+import PlusIcon from "@/components/Icons/PlusIcon";
+import { formatDate } from "@/utils/funtions";
+import { storage } from "@/app/firebase";
+import { ref, uploadBytesResumable, getDownloadURL } from "firebase/storage";
+import { toast } from "react-toastify";
 
 const TYPE_MODAL = {
   CREATE: "create",
@@ -31,14 +41,15 @@ export default function Products() {
   const [option, setOption] = useState<any>(searchParamsCus.paramsObj);
   const [products, setProducts] = useState<any>();
   const [userSelected, setUserSelected] = useState<any>();
+  const [productSelected, setProductSelected] = useState<any>();
 
   const [isOpenModal, setIsOpenModal] = useState(TYPE_MODAL.CLOSE);
 
   const getListProduct = async () => {
     try {
       const res = await getProductsApi(option);
-      console.log(res);
       setProducts(res?.data);
+      console.log("getListProduct: ", res?.data);
       setOption({
         ...option,
         page: res?.data.meta.page,
@@ -64,29 +75,18 @@ export default function Products() {
     handleSearch();
   };
 
-  const formatDate = (date: any) => {
-    return new Date(date)
-      .toLocaleString("vi", {
-        dateStyle: "short",
-        timeStyle: "medium",
-        timeZone: "Asia/Ho_Chi_Minh",
-      })
-      .split(" ")
-      .reverse()
-      .join(" ");
+  const handleShowEditModal = (product: any) => {
+    setProductSelected(product);
+    setIsOpenModal(TYPE_MODAL.EDIT);
   };
 
-  const handleShowDetail = (user: any) => {
-    setUserSelected(user);
+  const handleReload = () => {
     setIsOpenModal(TYPE_MODAL.CLOSE);
-  };
+    getListProduct();
+  } 
 
   useEffect(() => {
     getListProduct();
-    console.log("option: ", option);
-    console.log("pathname: ", pathname);
-    // console.log("searchParams: ", searchParams);
-    // console.log("params: ", params);
   }, []);
 
   return (
@@ -169,7 +169,7 @@ export default function Products() {
                       <div className="flex items-center space-x-3.5">
                         <button
                           className="hover:text-primary"
-                          onClick={() => handleShowDetail(product)}
+                          onClick={() => handleShowEditModal(product)}
                         >
                           <svg
                             className="fill-current"
@@ -254,7 +254,17 @@ export default function Products() {
         onClose={() => setIsOpenModal("")}
         title={"Create Product"}
       >
-        <FormCreateProduct />
+        <FormCreateProduct onHandleSuccess={handleReload} />
+      </Modal>
+      <Modal
+        isOpen={isOpenModal == TYPE_MODAL.EDIT}
+        onClose={() => setIsOpenModal("")}
+        title={"Update Product"}
+      >
+        <FormEditProduct
+          product={productSelected}
+          onHandleSuccess={handleReload}
+        />
       </Modal>
     </>
   );
@@ -274,9 +284,14 @@ const FormCreateProduct = ({ onHandleSuccess }: any) => {
 
   const onSubmit = async () => {
     try {
-      console.log(values);
+      let data = { ...values };
+      data.images = await handleImageUpload(data.images);
+      await createProductApi(data);
+      toast.success("Create Successfully!");
+      onHandleSuccess();
     } catch (error) {
-      console.log("handleLogin: ", error);
+      toast.error("Create Failed!");
+      console.log("create product error: ", error);
     }
   };
 
@@ -288,50 +303,130 @@ const FormCreateProduct = ({ onHandleSuccess }: any) => {
     handleChange,
     dirty,
     touched,
+    setFieldValue,
   }: any = useFormik({
     initialValues: {
       name: "",
       description: "",
       categoryIds: [],
       images: [],
-      priceTags: [],
+      priceTags: [
+        {
+          name: "",
+          price: 0,
+        },
+      ],
     },
     onSubmit,
-    enableReinitialize: true
+    enableReinitialize: true,
     // validationSchema: SignInSchema,
   });
+
+  const handleFile = (e: any) => {
+    let file = e.target.files;
+
+    for (let i = 0; i < file.length; i++) {
+      const fileType = file[i]["type"];
+      const validImageTypes = ["image/gif", "image/jpeg", "image/png"];
+      if (validImageTypes.includes(fileType)) {
+        setFieldValue(`images[${values.images.length}]`, file[i]);
+      } else {
+      }
+    }
+  };
+
+  const removeImage = (i: any) => {
+    setFieldValue(
+      "images",
+      values.images.filter((x: any) => x.name !== i),
+    );
+  };
+
+  const handleImageUpload = async (images: any) => {
+    if (!images.length) {
+      alert("Please select an image to upload.");
+      throw "Please select an image to upload.";
+    }
+
+    const promises: any = [];
+    const progress: any = {};
+    const urls: any = [];
+
+    images.forEach((image: any, index: number) => {
+      const storageRef = ref(
+        storage,
+        `images/products/${values.name.replace(/ /g, "_")}/${image.name}`,
+      );
+      const uploadTask = uploadBytesResumable(storageRef, image);
+
+      promises.push(
+        new Promise<void>((resolve, reject) => {
+          uploadTask.on(
+            "state_changed",
+            (snapshot) => {
+              const progressPercentage = Math.round(
+                (snapshot.bytesTransferred / snapshot.totalBytes) * 100,
+              );
+              progress[image.name] = progressPercentage;
+            },
+            (error) => {
+              console.error("Upload failed:", error);
+              reject(error);
+            },
+            async () => {
+              const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+              urls.push(downloadURL);
+              resolve();
+            },
+          );
+        }),
+      );
+    });
+    try {
+      await Promise.all(promises);
+      console.log("All files uploaded");
+
+      // Xử lý bước tiếp theo ở đây
+    } catch (error) {
+      console.error("Error uploading files:", error);
+    }
+    // await Promise.all(promises);
+    return urls;
+  };
 
   return (
     <div>
       <form onSubmit={handleSubmit}>
         <div className="max-h-[55vh] overflow-auto rounded-sm border border-stroke bg-white shadow-default dark:border-strokedark dark:bg-boxdark">
           <div className="p-6.5">
-            <div className="mb-4.5 flex flex-col gap-6 xl:flex-row">
-              <div className="w-full xl:w-1/2">
-                <label className="mb-3 block text-sm font-medium text-black dark:text-white">
-                  Product Name
-                </label>
-                <input
-                  value={values.name}
-                  name="name"
-                  onChange={handleChange}
-                  onBlur={handleBlur}
-                  type="text"
-                  placeholder="Enter your first name"
-                  className="w-full rounded border-[1.5px] border-stroke bg-transparent px-5 py-3 text-black outline-none transition focus:border-primary active:border-primary disabled:cursor-default disabled:bg-whiter dark:border-form-strokedark dark:bg-form-input dark:text-white dark:focus:border-primary"
-                />
-              </div>
+            <div className="mb-4.5">
+              <label className="mb-3 block text-sm font-medium text-black dark:text-white">
+                Product Name
+              </label>
+              <input
+                value={values.name}
+                name="name"
+                onChange={handleChange}
+                onBlur={handleBlur}
+                type="text"
+                placeholder="Enter Product Name"
+                className="w-full rounded border-[1.5px] border-stroke bg-transparent px-5 py-3 text-black outline-none transition focus:border-primary active:border-primary disabled:cursor-default disabled:bg-whiter dark:border-form-strokedark dark:bg-form-input dark:text-white dark:focus:border-primary"
+              />
+            </div>
 
-              <div className="w-full xl:w-1/2">
-                <label className="mb-3 block text-sm font-medium text-black dark:text-white">
-                  Product Description
-                </label>
-                <input
-                  type="text"
-                  placeholder="Enter your last name"
-                  className="w-full rounded border-[1.5px] border-stroke bg-transparent px-5 py-3 text-black outline-none transition focus:border-primary active:border-primary disabled:cursor-default disabled:bg-whiter dark:border-form-strokedark dark:bg-form-input dark:text-white dark:focus:border-primary"
-                />
-              </div>
+            <div className="mb-6">
+              <label className="mb-3 block text-sm font-medium text-black dark:text-white">
+                Product Description
+              </label>
+              <textarea
+                rows={6}
+                value={values.description}
+                name="description"
+                onChange={handleChange}
+                onBlur={handleBlur}
+                placeholder="Enter Product Description"
+                className="w-full rounded border-[1.5px] border-stroke bg-transparent px-5 py-3 text-black outline-none transition focus:border-primary active:border-primary disabled:cursor-default disabled:bg-whiter dark:border-form-strokedark dark:bg-form-input dark:text-white dark:focus:border-primary"
+              ></textarea>
             </div>
 
             <div className="mb-4.5">
@@ -345,7 +440,6 @@ const FormCreateProduct = ({ onHandleSuccess }: any) => {
                 options={option_cate}
                 value={values.categoryIds}
                 onChange={(selectedOption: any) => {
-                  console.log(selectedOption);
                   handleChange({
                     target: { name: "categoryIds", value: selectedOption },
                   });
@@ -362,50 +456,430 @@ const FormCreateProduct = ({ onHandleSuccess }: any) => {
             <label className="mb-3 block text-sm font-medium text-black dark:text-white">
               Price
             </label>
+
             <div className="flex flex-col gap-3">
-              <div className="mb-4.5 flex flex-col gap-2 xl:flex-row">
-                <div className="w-full xl:w-1/2">
-                  <input
-                    type="text"
-                    placeholder="Enter name price tag"
-                    className="w-full rounded border-[1.5px] border-stroke bg-transparent px-5 py-3 text-black outline-none transition focus:border-primary active:border-primary disabled:cursor-default disabled:bg-whiter dark:border-form-strokedark dark:bg-form-input dark:text-white dark:focus:border-primary"
-                  />
-                </div>
-                <div className="w-full xl:w-1/2">
-                  <input
-                    type="number"
-                    placeholder="Enter price"
-                    className="w-full rounded border-[1.5px] border-stroke bg-transparent px-5 py-3 text-black outline-none transition focus:border-primary active:border-primary disabled:cursor-default disabled:bg-whiter dark:border-form-strokedark dark:bg-form-input dark:text-white dark:focus:border-primary"
-                  />
-                </div>
-              </div>
+              {values.priceTags.map((priceTag: any, index: number) => {
+                return (
+                  <div
+                    className="flex w-full items-center gap-2 xl:items-start"
+                    key={index}
+                  >
+                    <div className="flex flex-1 flex-col gap-2 xl:flex-row">
+                      <div className="w-full xl:w-1/2">
+                        <input
+                          type="text"
+                          value={values.priceTags[index].name}
+                          name={`priceTags[${index}].name`}
+                          onChange={handleChange}
+                          onBlur={handleBlur}
+                          placeholder="Enter name price tag"
+                          className="w-full rounded border-[1.5px] border-stroke bg-transparent px-5 py-3 text-black outline-none transition focus:border-primary active:border-primary disabled:cursor-default disabled:bg-whiter dark:border-form-strokedark dark:bg-form-input dark:text-white dark:focus:border-primary"
+                        />
+                      </div>
+                      <div className="w-full xl:w-1/2">
+                        <input
+                          type="number"
+                          value={values.priceTags[index].price}
+                          name={`priceTags[${index}].price`}
+                          onChange={handleChange}
+                          onBlur={handleBlur}
+                          placeholder="Enter price"
+                          className="w-full rounded border-[1.5px] border-stroke bg-transparent px-5 py-3 text-black outline-none transition focus:border-primary active:border-primary disabled:cursor-default disabled:bg-whiter dark:border-form-strokedark dark:bg-form-input dark:text-white dark:focus:border-primary"
+                        />
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setFieldValue(
+                          "priceTags",
+                          values.priceTags.filter(
+                            (_newE: any, newI: number) => newI !== index,
+                          ),
+                        );
+                      }}
+                      className="h-[51px] px-4 py-3 text-red-600 duration-300 hover:bg-red-600 hover:text-red-100"
+                    >
+                      <TrashIcon />
+                    </button>
+                  </div>
+                );
+              })}
+              <button
+                onClick={(e) => {
+                  e.preventDefault();
+                  setFieldValue(`priceTags[${values.priceTags.length}]`, {
+                    name: "",
+                    price: 0,
+                  });
+                }}
+                className="my-2 flex w-fit items-center gap-2 rounded bg-primary p-3 font-medium text-white hover:bg-opacity-80"
+              >
+                <PlusIcon />
+              </button>
             </div>
 
             <div className="mb-4.5">
               <label className="mb-3 block text-sm font-medium text-black dark:text-white">
-                Subject
+                Images
+              </label>
+              <div className="bg-gray-300 border-gray-400 relative h-32 w-full cursor-pointer items-center rounded-md border-2 border-dotted">
+                <input
+                  type="file"
+                  onChange={handleFile}
+                  className="absolute z-10 h-full w-full bg-green-200 opacity-0"
+                  name="files[]"
+                />
+                <div className="bg-gray-200 absolute top-0 z-1 flex h-full w-full items-center justify-center">
+                  <div className="flex flex-col">
+                    <i className="mdi mdi-folder-open text-gray-400 text-center text-[30px]"></i>
+                    <span className="text-[12px]">{`Drag and Drop a file`}</span>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {values.images.map((file: any, key: number) => {
+                  return (
+                    <div key={key} className="relative overflow-hidden">
+                      <i
+                        onClick={() => {
+                          removeImage(file.name);
+                        }}
+                        className="mdi mdi-close absolute right-1 cursor-pointer hover:text-white"
+                      ></i>
+                      <img
+                        className="h-20 w-20 rounded-md"
+                        src={
+                          typeof file === "string"
+                            ? file
+                            : URL.createObjectURL(file)
+                        }
+                      />
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          </div>
+        </div>
+        <button className="mt-5 flex w-full justify-center rounded bg-primary p-3 font-medium text-gray hover:bg-opacity-90">
+          Create
+        </button>
+      </form>
+    </div>
+  );
+};
+
+const FormEditProduct = ({ product, onHandleSuccess }: any) => {
+  const option_cate = [
+    {
+      label: "Laptop",
+      value: "9c875cd2-6378-4ab7-b1d9-8d0008060d8c",
+    },
+    {
+      label: "Keyboard",
+      value: "927ce601-8b7d-40ac-9974-9aca457f673b",
+    },
+  ];
+
+  const categoriesFormat = useMemo(
+    () =>
+      product.categories.map((item: any) => {
+        return {
+          label: item.category.name,
+          value: item.category.id,
+        };
+      }),
+    [product],
+  );
+
+  const onSubmit = async () => {
+    try {
+      let data = { ...values };
+      data.images = await handleImageUpload(data.images);
+      console.log('after', data.images)
+      await updateProductApi(product.id, data);
+      toast.success("Update Successfully!");
+      onHandleSuccess();
+    } catch (error) {
+      toast.error("Update Failed!");
+      console.log("Update product error: ", error);
+    }
+  };
+
+  const {
+    handleSubmit,
+    errors,
+    values,
+    handleBlur,
+    handleChange,
+    dirty,
+    touched,
+    setFieldValue,
+  }: any = useFormik({
+    initialValues: {
+      name: product.name,
+      description: product.description,
+      categoryIds: categoriesFormat,
+      images: product.images,
+      priceTags: product.priceTags,
+    },
+    onSubmit,
+    enableReinitialize: true,
+    // validationSchema: SignInSchema,
+  });
+
+  const handleFile = (e: any) => {
+    let file = e.target.files;
+    for (let i = 0; i < file.length; i++) {
+      const fileType = file[i]["type"];
+      const validImageTypes = ["image/gif", "image/jpeg", "image/png"];
+      if (validImageTypes.includes(fileType)) {
+        setFieldValue(`images[${values.images.length}]`, file[i]);
+      } else {
+      }
+    }
+  };
+
+  const removeImage = (i: any) => {
+    setFieldValue(
+      "images",
+      values.images.filter((_x: any, index: number) => index !== i),
+    );
+  };
+
+  const handleImageUpload = async (images: any) => {
+    if (!images.length) {
+      alert("Please select an image to upload.");
+      throw "Please select an image to upload.";
+    }
+
+    const promises: any = [];
+    const progress: any = {};
+
+    const imageLink = images.filter((image: any) => typeof image === "string");
+    const imageFile = images.filter((image: any) => typeof image !== "string");
+
+    imageFile.forEach((image: any, index: number) => {
+      const storageRef = ref(
+        storage,
+        `images/products/${values.name.replace(/ /g, "_")}/${image.name}`,
+      );
+      const uploadTask = uploadBytesResumable(storageRef, image);
+
+      promises.push(
+        new Promise<void>((resolve, reject) => {
+          uploadTask.on(
+            "state_changed",
+            (snapshot) => {
+              const progressPercentage = Math.round(
+                (snapshot.bytesTransferred / snapshot.totalBytes) * 100,
+              );
+              progress[image.name] = progressPercentage;
+            },
+            (error) => {
+              console.error("Upload failed:", error);
+              reject(error);
+            },
+            async () => {
+              const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+              imageLink.push(downloadURL);
+              resolve();
+            },
+          );
+        }),
+      );
+    });
+    try {
+      await Promise.all(promises);
+      console.log("All files uploaded");
+
+      // Xử lý bước tiếp theo ở đây
+    } catch (error) {
+      console.error("Error uploading files:", error);
+    }
+
+
+
+    // for (let i = 0; i < imageFile.length; i++) {
+    //   // if (typeof images[i] === "string") {
+    //   //   continue;
+    //   // }
+    //   console.log("index image: ", i);
+    //   const storageRef = ref(
+    //     storage,
+    //     `images/products/${values.name.replace(/ /g, "_")}/${imageFile[i].name}`,
+    //   );
+    //   const uploadTask = uploadBytesResumable(storageRef, imageFile[i]);
+
+    //   uploadTask.on(
+    //     "state_changed",
+    //     (snapshot) => {
+    //       const progressPercentage = Math.round(
+    //         (snapshot.bytesTransferred / snapshot.totalBytes) * 100,
+    //       );
+    //       progress[imageFile[i].name] = progressPercentage;
+    //     },
+    //     (error) => {
+    //       console.error("Upload failed:", error);
+    //     },
+    //     async () => {
+    //       const downloadURL = await getDownloadURL(uploadTask.snapshot.ref);
+    //       imageLink.push(downloadURL);
+    //       console.log("File available at", downloadURL);
+    //     },
+    //   );
+
+    //   promises.push(uploadTask);
+    // }
+
+    // await Promise.all(promises);
+    return imageLink;
+  };
+
+  return (
+    <div>
+      <form onSubmit={handleSubmit}>
+        <div className="max-h-[55vh] overflow-auto rounded-sm border border-stroke bg-white shadow-default dark:border-strokedark dark:bg-boxdark">
+          <div className="p-6.5">
+            <div className="mb-4.5">
+              <label className="mb-3 block text-sm font-medium text-black dark:text-white">
+                Product Name
               </label>
               <input
+                value={values.name}
+                name="name"
+                onChange={handleChange}
+                onBlur={handleBlur}
                 type="text"
-                placeholder="Select subject"
+                placeholder="Enter Product Name"
                 className="w-full rounded border-[1.5px] border-stroke bg-transparent px-5 py-3 text-black outline-none transition focus:border-primary active:border-primary disabled:cursor-default disabled:bg-whiter dark:border-form-strokedark dark:bg-form-input dark:text-white dark:focus:border-primary"
               />
             </div>
 
             <div className="mb-6">
               <label className="mb-3 block text-sm font-medium text-black dark:text-white">
-                Message
+                Product Description
               </label>
               <textarea
                 rows={6}
-                placeholder="Type your message"
+                value={values.description}
+                name="description"
+                onChange={handleChange}
+                onBlur={handleBlur}
+                placeholder="Enter Product Description"
                 className="w-full rounded border-[1.5px] border-stroke bg-transparent px-5 py-3 text-black outline-none transition focus:border-primary active:border-primary disabled:cursor-default disabled:bg-whiter dark:border-form-strokedark dark:bg-form-input dark:text-white dark:focus:border-primary"
               ></textarea>
+            </div>
+
+            <div className="mb-4.5">
+              <label className="mb-3 block text-sm font-medium text-black dark:text-white">
+                Categories <span className="text-meta-1">*</span>
+              </label>
+              <Select
+                name="categoryIds"
+                isClearable
+                isMulti
+                options={option_cate}
+                value={values.categoryIds}
+                onChange={(selectedOption: any) => {
+                  handleChange({
+                    target: { name: "categoryIds", value: selectedOption },
+                  });
+                }}
+                noOptionsMessage={() => "No options"}
+                classNames={{
+                  control: () =>
+                    "w-full rounded border-[1.5px] border-stroke bg-transparent px-3 py-1 text-black outline-none transition focus:border-primary active:border-primary disabled:cursor-default disabled:bg-whiter dark:border-form-strokedark dark:bg-form-input dark:text-white dark:focus:border-primary",
+                  valueContainer: () => "",
+                }}
+                onBlur={handleBlur}
+              />
+            </div>
+            <label className="mb-3 block text-sm font-medium text-black dark:text-white">
+              Price
+            </label>
+
+            <div className="flex flex-col gap-3">
+              {values.priceTags.map((priceTag: any, index: number) => {
+                return (
+                  <div
+                    className="flex w-full items-center gap-2 xl:items-start"
+                    key={index}
+                  >
+                    <div className="flex flex-1 flex-col gap-2 xl:flex-row">
+                      <div className="w-full xl:w-1/2">
+                        <input
+                          type="text"
+                          value={values.priceTags[index].name}
+                          name={`priceTags[${index}].name`}
+                          onChange={handleChange}
+                          onBlur={handleBlur}
+                          placeholder="Enter name price tag"
+                          className="w-full rounded border-[1.5px] border-stroke bg-transparent px-5 py-3 text-black outline-none transition focus:border-primary active:border-primary disabled:cursor-default disabled:bg-whiter dark:border-form-strokedark dark:bg-form-input dark:text-white dark:focus:border-primary"
+                        />
+                      </div>
+                      <div className="w-full xl:w-1/2">
+                        <input
+                          type="number"
+                          value={values.priceTags[index].price}
+                          name={`priceTags[${index}].price`}
+                          onChange={handleChange}
+                          onBlur={handleBlur}
+                          placeholder="Enter price"
+                          className="w-full rounded border-[1.5px] border-stroke bg-transparent px-5 py-3 text-black outline-none transition focus:border-primary active:border-primary disabled:cursor-default disabled:bg-whiter dark:border-form-strokedark dark:bg-form-input dark:text-white dark:focus:border-primary"
+                        />
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            <div className="mb-4.5">
+              <label className="mb-3 block text-sm font-medium text-black dark:text-white">
+                Images
+              </label>
+              <div className="bg-gray-300 border-gray-400 relative h-32 w-full cursor-pointer items-center rounded-md border-2 border-dotted">
+                <input
+                  type="file"
+                  onChange={handleFile}
+                  className="absolute z-10 h-full w-full bg-green-200 opacity-0"
+                  name="files[]"
+                />
+                <div className="bg-gray-200 absolute top-0 z-1 flex h-full w-full items-center justify-center">
+                  <div className="flex flex-col">
+                    <i className="mdi mdi-folder-open text-gray-400 text-center text-[30px]"></i>
+                    <span className="text-[12px]">{`Drag and Drop a file`}</span>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {values.images.map((file: any, index: number) => {
+                  return (
+                    <div key={index} className="relative overflow-hidden">
+                      <i
+                        onClick={() => {
+                          removeImage(index);
+                        }}
+                        className="mdi mdi-close absolute right-1 cursor-pointer hover:text-white"
+                      ></i>
+                      <img
+                        className="h-20 w-20 rounded-md"
+                        src={
+                          typeof file === "string"
+                            ? file
+                            : URL.createObjectURL(file)
+                        }
+                      />
+                    </div>
+                  );
+                })}
+              </div>
             </div>
           </div>
         </div>
         <button className="mt-5 flex w-full justify-center rounded bg-primary p-3 font-medium text-gray hover:bg-opacity-90">
-          Send Message
+          Update
         </button>
       </form>
     </div>

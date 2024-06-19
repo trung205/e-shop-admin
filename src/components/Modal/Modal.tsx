@@ -5,7 +5,7 @@ const Modal = ({ isOpen, onClose, title, children }: any) => {
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50">
-      <div className="transform overflow-hidden rounded-lg bg-gray shadow-xl transition-all sm:w-full sm:max-w-lg">
+      <div className="transform overflow-hidden rounded-lg bg-gray shadow-xl transition-all sm:w-full sm:max-w-2xl">
         <div className="flex items-center justify-between px-4 py-3">
           <h3 className="text-gray-900 text-lg font-medium leading-6">
             {title}

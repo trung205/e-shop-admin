@@ -11,3 +11,15 @@ export function debounce(fn: any, time = 500) {
     }
     return wrapper;
   }
+
+export const formatDate = (date: any) => {
+    return new Date(date)
+      .toLocaleString("vi", {
+        dateStyle: "short",
+        timeStyle: "medium",
+        timeZone: "Asia/Ho_Chi_Minh",
+      })
+      .split(" ")
+      .reverse()
+      .join(" ");
+  };

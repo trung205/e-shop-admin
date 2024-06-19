@@ -9,3 +9,11 @@ export const getProductsApi  = async (data: {page?: string | number, keyword?: s
         console.log('signIn error')
     }
 }
+
+export const createProductApi  = async (data: any) => {
+    return await axiosInstance.post('/admin/products', data);
+}
+
+export const updateProductApi  = async (id: any, data: any) => {
+    return await axiosInstance.put(`/admin/products/${id}`, data);
+}
